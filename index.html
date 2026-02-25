@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TERRACASA 스마트 통합 견적 시스템</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- html2canvas (이미지 캡처) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- jsPDF (PDF 생성) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'tc-black': '#1a1a1a',
+                        'tc-white': '#ffffff',
+                        'tc-gray': '#333333',
+                        'tc-olive': '#4A5D23', /* 테라까사 올리브 그린 */
+                        'tc-yellow': '#EAB308', /* 테라까사 옐로우 (포인트) */
+                        'tc-light': '#F9FAFB',
+                    },
+                    fontFamily: {
+                        sans: ['Pretendard', 'Noto Sans KR', 'sans-serif'],
+                    },
+                    screens: {
+                        'print': {'raw': 'print'},
+                    }
+                }
+            }
+        };
+    </script>
+
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body { font-family: 'Pretendard', sans-serif; background-color: #f3f4f6; -webkit-tap-highlight-color: transparent; }
+
+        .force-hidden { display: none !important; }
+
+        .app-container {
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        }
+
+        .capture-area {
+            padding: 40px;
+            background-color: white;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            min-height: 1400px;
+        }
+        
+        @media (max-width: 768px) {
+            .capture-area { padding: 20px; }
+        }
+
+        .input-base {
+            width: 100%;
+            border: 1px solid #d1d5db;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 13px;
+            transition: all 0.2s;
+            background-color: #fff;
+            height: 32px;
+        }
+        .input-base:focus {
+            outline: none;
+            border-color: #4A5D23;
+            box-shadow: 0 0 0 1px rgba(74, 93, 35, 0.3);
+        }
+        select.input-base { padding-right: 20px; }
+
+        .table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            margin-bottom: 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+        }
+        
+        .excel-table {
+            width: 100%;
+            min-width: 900px;
+            border-collapse: collapse;
+            border: 1px solid #9ca3af;
+            font-size: 12px;
+        }
+        .excel-table th {
+            background-color: #f3f4f6;
+            border: 1px solid #9ca3af;
+            padding: 8px;
+            font-weight: 700;
+            text-align: center;
+            white-space: nowrap;
+            color: #4A5D23;
+        }
+        .excel-table td {
+            border: 1px solid #d1d5db;
+            padding: 4px;
+            height: auto;
+            vertical-align: middle;
+        }
+        .excel-input {
+            width: 100%;
+            height: 100%;
+            min-height: 32px;
+            border: none;
+            padding: 0 4px;
+            background: transparent;
+            outline: none;
+            font-size: 12px;
+        }
+        .excel-input:focus { background-color: #fefce8; }
+        
+        .section-header {
+            background-color: #4A5D23;
+            color: white;
+            padding: 8px 12px;
+            font-weight: bold;
+            font-size: 14px;
+            margin-top: 20px;
+            border-radius: 4px 4px 0 0;
+            border-bottom: 3px solid #EAB308;
+        }
+
+        .spec-container, .option-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            font-size: 11px;
+        }
+        .spec-row, .option-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .spec-label { width: 30px; color: #666; font-weight: 600; }
+        .spec-input { flex: 1; border-bottom: 1px solid #ddd; padding: 2px; }
+        
+        .option-label { display: flex; align-items: center; gap: 4px; cursor: pointer; padding: 2px 0; }
+        .option-qty-input {
+            width: 30px; border: 1px solid #ddd; border-radius: 3px; text-align: center; padding: 2px; background-color: white;
+        }
+        .option-qty-input:disabled { background-color: #f3f4f6; color: #9ca3af; border: 1px solid #e5e7eb; }
+
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255, 255, 255, 0.9); display: flex; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 10000;
+        }
+        .hidden { display: none !important; }
+        .spinner {
+            border: 4px solid #f3f3f3; border-top: 4px solid #4A5D23;
+            border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .notice-box {
+            margin-top: 2rem;
+            padding-top: 1rem;
+            border-top: 2px solid #e5e7eb;
+        }
+        .notice-title {
+            font-weight: 800; color: #4A5D23; margin-bottom: 0.5rem; font-size: 0.85rem;
+        }
+        .notice-list {
+            font-size: 0.7rem; color: #6b7280; line-height: 1.5;
+            display: flex; flex-direction: column; gap: 3px;
+        }
+        .notice-item { display: flex; align-items: flex-start; }
+        .notice-bullet { margin-right: 6px; color: #EAB308; font-weight: bold; min-width: 8px; }
+
+        #pdf-hidden-container {
+            position: fixed;
+            left: 0; top: 0; width: 1200px; height: 0;
+            overflow: visible; z-index: -9999; opacity: 0; pointer-events: none;
+        }
+
+        .pdf-mode .input-base, 
+        .pdf-mode .excel-input, 
+        .pdf-mode select, 
+        .pdf-mode .spec-input, 
+        .pdf-mode .option-qty-input, 
+        .pdf-mode .discount-input {
+            border: none !important;
+            border-bottom: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            -webkit-appearance: none; 
+            appearance: none;
+        }
+        .pdf-mode .hidden-on-print { display: none !important; }
+        .pdf-mode textarea { resize: none; border: none; }
+        .pdf-mode .section-header { background-color: #4A5D23; color: white; border-bottom: 3px solid #EAB308; }
+        .pdf-mode .excel-table th { color: #4A5D23; background-color: #f3f4f6; }
+        
+        .discount-text {
+            color: #4A5D23; /* 올리브 그린 */
+            font-weight: bold;
+            font-size: 0.85rem;
+            margin-top: 6px;
+            line-height: 1.4;
+        }
+        .warning-text {
+            color: #dc2626;
+            font-weight: bold;
+            font-size: 0.85rem;
+            margin-top: 6px;
+            line-height: 1.4;
+            background-color: #fef2f2;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #fecaca;
+        }
+        
+        .btn-olive { background-color: #4A5D23; color: white; }
+        .btn-olive:hover { background-color: #3a4a1c; }
+    </style>
+</head>
+<body class="bg-gray-50 py-4 px-2 md:py-10 md:px-4">
+
+    <!-- 로딩 -->
+    <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+        <div class="text-center font-bold text-lg text-tc-olive">견적서 PDF 생성 중...</div>
+    </div>
+
+    <!-- 네비게이션 -->
+    <div class="w-full max-w-[1200px] mx-auto mb-6 flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border-l-4 border-tc-olive">
+        <h1 class="text-xl font-bold text-tc-olive">TERRACASA 통합 견적서</h1>
+        <button onclick="location.reload()" class="text-sm text-gray-400 hover:text-tc-olive underline transition">초기화</button>
+    </div>
+
+    <!-- 메인 컨테이너 -->
+    <div class="app-container rounded-lg overflow-hidden">
+        
+        <div id="capture-area" class="capture-area">
+            <!-- 헤더: 가운데 정렬 -->
+            <div class="text-center mb-8 pb-6 border-b-2 border-tc-olive">
+                <span class="text-sm font-bold text-tc-olive tracking-[0.4em] uppercase mb-2 block">Work with Smart Consumers!</span>
+                <h1 class="text-5xl font-black text-black tracking-tight">TERRACASA QUOTATION</h1>
+            </div>
+
+            <div class="flex flex-col md:flex-row border border-gray-300 mb-8 rounded-sm overflow-hidden">
+                <!-- 공급자 정보 -->
+                <div class="w-full md:w-1/2 p-6 border-b md:border-b-0 md:border-r border-gray-300">
+                    <h3 class="font-extrabold text-tc-olive mb-4 text-xs uppercase tracking-wider">Supplier (공급자)</h3>
+                    <div class="grid grid-cols-[70px_1fr] gap-y-2 text-sm text-gray-700">
+                        <div class="text-gray-400 font-medium">상호</div>
+                        <div>
+                            <div class="font-bold text-lg text-black" id="supplier-name">(주)시그니티</div>
+                            <div class="text-xs text-gray-400 mt-1" id="supplier-biz-no">사업자등록번호 : 524-81-02411</div>
+                        </div>
+                        <div class="text-gray-400 font-medium">담당자</div><div class="font-bold" id="supplier-manager">최재훈</div>
+                        <div class="text-gray-400 font-medium">연락처</div><div class="font-bold" id="supplier-phone">1800-9512 / 010-8132-9047</div>
+                        <div class="text-gray-400 font-medium">이메일</div><div id="supplier-email">Terracasa_@naver.com</div>
+                    </div>
+                </div>
+                <!-- 고객 정보 -->
+                <div class="w-full md:w-1/2 p-6 bg-[#FAFAFA]">
+                    <h3 class="font-extrabold text-tc-olive mb-4 text-xs uppercase tracking-wider">Customer (발주자)</h3>
+                    <div class="grid grid-cols-[70px_1fr] gap-y-3 text-sm items-center">
+                        <div class="text-tc-olive font-bold">견적일</div>
+                        <div id="view-date" class="text-base font-bold text-black border-b border-gray-300 pb-1 w-full"></div>
+
+                        <div class="text-gray-500 font-semibold">성함</div>
+                        <input type="text" id="cust-name" class="input-base font-bold bg-white" placeholder="고객명 (미입력시 VIP)">
+                        
+                        <div class="text-gray-500 font-semibold">연락처</div>
+                        <input type="text" id="cust-phone" class="input-base bg-white" placeholder="010-0000-0000" type="tel">
+                        
+                        <div class="text-gray-500 font-semibold self-start mt-1">주소</div>
+                        <div class="flex flex-col gap-1 w-full">
+                            <div class="flex gap-1 w-full">
+                                <select id="region-do" class="input-base w-1/2 bg-white" onchange="handleRegionChange(this)"><option value="">시/도</option></select>
+                                <select id="region-si" class="input-base w-1/2 bg-white" disabled><option value="">시/군/구</option></select>
+                            </div>
+                            <input type="text" id="cust-addr-detail" class="input-base bg-white" placeholder="상세주소">
+                        </div>
+
+                        <div class="text-gray-500 font-semibold">설치일</div>
+                        <input type="date" id="install-date" class="input-base bg-white">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 모바일 안내 -->
+            <div class="md:hidden text-xs text-tc-yellow font-bold mb-1 text-right">↔ 좌우로 밀어서 확인</div>
+
+            <div class="section-header">1. 제품 상세 내역 (Product Details)</div>
+            <div class="mb-4">
+                <div class="table-wrapper">
+                    <table class="excel-table">
+                        <colgroup><col width="40"><col width="160"><col width="140"><col width="80"><col width="160"><col width="40"><col width="40"><col width="90"><col width="100"><col width="40" class="hidden-on-print"></colgroup>
+                        <thead><tr><th>No.</th><th>품명</th><th>규격</th><th>색상</th><th>옵션 (추가사항)</th><th>단위</th><th>수량</th><th>단가</th><th>공급가액</th><th class="hidden-on-print">삭제</th></tr></thead>
+                        <tbody id="est-tbody"></tbody>
+                    </table>
+                </div>
+                <div class="text-center py-3 bg-gray-50 border border-t-0 border-gray-300 hidden-on-print rounded-b"><button onclick="addRow()" class="text-xs font-bold text-tc-olive hover:underline py-1 w-full block">+ 제품 추가</button></div>
+            </div>
+
+            <div class="section-header">2. 시공 및 기타 부대비용 (Construction & Others)</div>
+            <div class="mb-6">
+                <div class="table-wrapper">
+                    <table class="excel-table" id="construction-table">
+                        <colgroup><col width="120"><col width="180"><col width="180"><col width="40"><col width="40"><col width="110"><col width="110"><col width="40" class="hidden-on-print"></colgroup>
+                        <thead><tr><th>구분</th><th>항목명</th><th>상세내용</th><th>단위</th><th>수량</th><th>단가</th><th>공급가액</th><th class="hidden-on-print">삭제</th></tr></thead>
+                        <tbody id="cons-tbody"></tbody>
+                    </table>
+                </div>
+                <div class="text-center py-3 bg-gray-50 border border-t-0 border-gray-300 hidden-on-print flex flex-col md:flex-row justify-center gap-2 rounded-b px-4 flex-wrap">
+                    <button onclick="addGenericDirectConsRow()" class="text-xs font-bold text-tc-olive hover:text-green-800 underline py-1 border border-gray-300 rounded bg-white px-3 shadow-sm">+ 직접공사비</button>
+                    <button onclick="addFoundationRow()" class="text-xs font-bold text-gray-600 hover:text-black underline py-1 border border-gray-300 rounded bg-white px-3 shadow-sm">+ 직접공사비(기초)</button>
+                    <button onclick="addMeasurementRow()" class="text-xs font-bold text-tc-yellow hover:text-yellow-700 underline py-1 border border-gray-300 rounded bg-white px-3 shadow-sm">+ 직접공사비(실측)</button>
+                    <button onclick="addLiftingRow()" class="text-xs font-bold text-gray-500 hover:text-gray-800 underline py-1 border border-gray-300 rounded bg-white px-3 shadow-sm">+ 자재반입비(양중)</button>
+                    <button onclick="addDeckRow()" class="text-xs font-bold text-teal-600 hover:text-teal-800 underline py-1 border border-gray-300 rounded bg-white px-3 shadow-sm">+ 자체공사비(데크)</button>
+                    <button onclick="addIndirectConsRow()" class="text-xs font-bold text-indigo-600 hover:text-indigo-800 underline py-1 border border-gray-300 rounded bg-white px-3 shadow-sm">+ 간접공사비</button>
+                    <button onclick="addConsRow()" class="text-xs font-bold text-gray-500 hover:text-gray-800 underline py-1 border border-gray-300 rounded bg-white px-3 shadow-sm">+ 기타 항목</button>
+                </div>
+            </div>
+
+            <div class="flex flex-col lg:flex-row gap-6 mb-8">
+                <div class="w-full lg:w-2/3">
+                    <div class="border border-gray-300 rounded p-4 h-full bg-white relative shadow-sm">
+                        <h4 class="text-xs font-bold text-tc-olive mb-3">NOTE / REMARKS (특이사항)</h4>
+                        <textarea id="remarks-area" class="w-full h-24 md:h-32 border-none text-xs resize-none focus:outline-none text-gray-700 leading-relaxed" placeholder="납기일, 배송 조건, 현장 특이사항 등을 입력하세요."></textarea>
+                        <div id="discount-message-area" class="mt-3 border-t pt-2 border-gray-100 space-y-2"></div>
+                    </div>
+                </div>
+                <div class="w-full lg:w-1/3">
+                    <table class="w-full text-xs border-collapse">
+                        <tr class="border-b border-gray-200"><td class="py-2 text-gray-500">제품 합계</td><td class="py-2 text-right font-medium text-gray-700" id="val-prod-sum">0</td></tr>
+                        <tr class="border-b border-gray-200"><td class="py-2 text-gray-500">시공/기타 합계</td><td class="py-2 text-right font-medium text-gray-700" id="val-cons-sum">0</td></tr>
+                        <tr class="border-b border-gray-200 bg-gray-50"><td class="py-2 font-bold text-gray-700 pl-2">총 공급가액</td><td class="py-2 text-right font-bold pr-2" id="val-supply">0</td></tr>
+                        <tr class="border-b border-gray-200"><td class="py-2 text-gray-500 pl-2">부가세 (VAT)</td><td class="py-2 text-right font-medium pr-2" id="val-tax">0</td></tr>
+                        <tr class="bg-gray-100 border-t-2 border-tc-olive"><td class="py-3 pl-3 font-bold text-lg text-black">총 견적금액</td><td class="py-3 pr-3 text-right font-black text-2xl text-tc-olive">₩ <span id="val-total">0</span></td></tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 하단 유의사항 -->
+            <div class="notice-box">
+                <h4 class="notice-title">[가견적 유의사항 및 특약설명]</h4>
+                <div class="notice-list">
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>테라까사는 지역별로 다른 운영사에 의해 운영되는 익스테리어 전문 브랜드입니다</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>테라까사는 국내 최저 수준의 가격을 추구합니다. 발주와 동시에 발주처에 제품가액을 전액 지불함으로 계약시 제품가액 완납이 필수입니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>테라까사는 제품판매가 중심인 회사로, 감리비 및 현장관리비 없이 효율적인 진행을 위해 제품 발주 후 시공 업무는 전문 시공팀에 전적으로 위임하고 있습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>추후 계약시 시공사업자와 직계약될 수 있습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>시공비는 제품비와 별도 정산되며, 입금 계좌 역시 시공팀 전용 계좌로 구분되어 있습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>대금 지급이 일괄적으로 처리되는 경우에도 별도의 감리비 및 현장관리비 지급이 되지 않았다면, 발주 이후 시공 관련 책임은 전적으로 시공팀에 귀속됩니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>시공비는 시공 당일 시공완료 후 즉시 지급되어야 합니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>청구되는 시공비의 경우 기본 시공비로 현장 여건에 따라 추가 될 수 있습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>현장 특성 상 주춧돌이나 몰탈 등의 지반 추가 작업 필요 시 200,000원 추가 비용 발생할 수 있습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>전동 시공시 전선이 파고라 설치아래까지 나와있지 않은경우 전기 연장비용이 200,000원 추가 발생할 수 있습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>현장 반입 이슈 발생시 양중 비용 추가 발생 할 수 있습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>건설현장 사다리 보조의 경우 견적에 포함되어 있지 않으니 필요한 현장의 경우 별도 요청 부탁드립니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>사전 협의되지 않은 현장 변동으로 인한 시공 추가금액은 별도로 청구됩니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>양중비의 경우 청구금액이 초과되는 경우 추가 청구 될 수 있습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>부득이하게 시공비의 일괄 처리가 필요하다면(관공서, 건설사 등) 별도의 “통합 견적서”를 요청 부탁드립니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>서울 경기 외 출장비가 추가되며 도서 산간의 경우 추가 출장비가 발생 할 수 있습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>글라스슬라이딩의 경우 최소 시공비 60만원이 기본으로 발생하며 9짝 부터는 1짝당 7만원의 시공비가 발생합니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>Deck(데크) 공사의 경우 당사의 제품품목이 아닌 시공팀의 별도 서비스 품목임으로 당사 제품 공사와는 무관합니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>장바의 자연스러운 처짐 현상은 제품 하자로 접수하지 않습니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>견적중 수식이 안걸려있거나, 오기로 인한 견적착오는 향후 반영 될수 있사오니 적극 검토 부탁드립니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>견적유효기간 이후 반영되는 단가 인상은 소급적용하기 어려우니 양해 부탁드립니다.</span></div>
+                    <div class="notice-item"><span class="notice-bullet">*</span><span>견적 유효기간은 2주입니다.</span></div>
+                </div>
+            </div>
+
+            <!-- Footer: ID added for dynamic update -->
+            <div id="footer-info" class="mt-8 text-center text-xs text-gray-400 pb-4">(주)시그니티 | 담당자: 최재훈 | 연락처: 010-8132-9047</div>
+        </div>
+    </div>
+
+    <!-- 하단 고정 버튼 -->
+    <div class="fixed bottom-0 left-0 w-full bg-white border-t p-4 flex justify-center gap-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-50">
+        <button onclick="saveAsPDF()" class="btn-olive font-bold py-3 px-10 rounded-full shadow-lg text-lg flex items-center justify-center gap-2 hover:scale-105 transition transform">
+            <span>💾 PDF 견적서 저장</span>
+        </button>
+    </div>
+    
+    <!-- PDF 생성을 위한 숨겨진 컨테이너 -->
+    <div id="pdf-hidden-container"></div>
+
+    <script>
+        // --- 1. 데이터 ---
+        const regions = {'서울특별시':['강남구','강동구','강북구','강서구','관악구','광진구','구로구','금천구','노원구','도봉구','동대문구','동작구','마포구','서대문구','서초구','성동구','성북구','송파구','양천구','영등포구','용산구','은평구','종로구','중구','중랑구'],'부산광역시':['강서구','금정구','기장군','남구','동구','동래구','부산진구','북구','사상구','사하구','서구','수영구','연제구','영도구','중구','해운대구'],'대구광역시':['군위군','남구','달서구','달성군','동구','북구','서구','수성구','중구'],'인천광역시':['강화군','계양구','남동구','동구','미추홀구','부평구','서구','연수구','옹진군','중구'],'광주광역시':['광산구','남구','동구','북구','서구'],'대전광역시':['대덕구','동구','서구','유성구','중구'],'울산광역시':['남구','동구','북구','울주군','중구'],'세종특별자치시':['세종시'],'경기도':['가평군','고양시','과천시','광명시','광주시','구리시','군포시','김포시','남양주시','동두천시','부천시','성남시','수원시','시흥시','안산시','안성시','안양시','양주시','양평군','여주시','연천군','오산시','용인시','의왕시','의정부시','이천시','파주시','평택시','포천시','하남시','화성시'],'강원특별자치도':['강릉시','고성군','동해시','삼척시','속초시','양구군','양양군','영월군','원주시','인제군','정선군','철원군','춘천시','태백시','평창군','홍천군','화천군','횡성군'],'충청북도':['괴산군','단양군','보은군','영동군','옥천군','음성군','제천시','증평군','진천군','청주시','충주시'],'충청남도':['계룡시','공주시','금산군','논산시','당진시','보령시','부여군','서산시','서천군','아산시','예산군','천안시','청양군','태안군','홍성군'],'전북특별자치도':['고창군','군산시','김제시','남원시','무주군','부안군','순창군','완주군','익산시','임실군','장수군','전주시','정읍시','진안군'],'전라남도':['강진군','고흥군','곡성군','광양시','구례군','나주시','담양군','목포시','무안군','보성군','순천시','신안군','여수시','영광군','영암군','완도군','장성군','장흥군','진도군','함평군','해남군','화순군'],'경상북도':['경산시','경주시','고령군','구미시','김천시','문경시','봉화군','상주시','성주군','안동시','영덕군','영양군','영주시','영천시','예천군','울릉군','울진군','의성군','청도군','청송군','칠곡군','포항시'],'경상남도':['거제시','거창군','고성군','김해시','남해군','밀양시','사천시','산청군','양산시','의령군','진주시','창녕군','창원시','통영시','하동군','함안군','함양군','합천군'],'제주특별자치도':['서귀포시','제주시']};
+
+        // 공급자 정보 설정
+        const suppliers = {
+            default: {
+                name: '(주)시그니티',
+                bizNo: '사업자등록번호 : 524-81-02411',
+                manager: '최재훈',
+                phone: '1800-9512 / 010-8132-9047',
+                email: 'Terracasa_@naver.com'
+            },
+            gyeongsang: {
+                name: '클로드 디',
+                bizNo: '사업자등록번호 : 502-40-44290', // 요청하신 사업자 번호 반영
+                manager: '곽명희',
+                phone: '010-6277-0339',
+                email: 'claudedesignlab@naver.com'
+            }
+        };
+
+        const gyeongsangArea = ['부산광역시', '대구광역시', '울산광역시', '경상북도', '경상남도'];
+
+        // 제품 카테고리 정의
+        const productCategories = [
+            {
+                label: "System Pergola",
+                items: ["OASIS (수동)", "OASIS (전동)"]
+            },
+            {
+                label: "Glass",
+                items: ["Glass Sliding", "Fix Glass"]
+            },
+            {
+                label: "Deck",
+                items: ["스톤데크 (+페데스탈)", "스톤데크 (+각관)"]
+            },
+            {
+                label: "기타",
+                items: ["직접 입력"]
+            }
+        ];
+
+        // --- OASIS 단가표 ---
+        const oasisManualPriceTable = {
+            2600: [3200000, 3400000, 3600000, 3800000, 4000000, 4200000, 4400000],
+            2775: [3240000, 3450000, 3660000, 3870000, 4080000, 4290000, 4500000],
+            2950: [3280000, 3500000, 3720000, 3940000, 4160000, 4380000, 4600000],
+            3125: [3320000, 3550000, 3780000, 4010000, 4240000, 4470000, 4700000],
+            3300: [3360000, 3600000, 3840000, 4080000, 4320000, 4560000, 4800000],
+            3475: [3400000, 3650000, 3900000, 4150000, 4400000, 4650000, 4900000],
+            3650: [3440000, 3700000, 3960000, 4220000, 4480000, 4740000, 5000000],
+            3825: [3480000, 3750000, 4020000, 4290000, 4560000, 4830000, 5100000],
+            4000: [3520000, 3800000, 4080000, 4360000, 4640000, 4920000, 5200000],
+            4175: [3560000, 3850000, 4140000, 4430000, 4720000, 5010000, 5300000],
+            4350: [3600000, 3900000, 4200000, 4500000, 4800000, 5100000, 5400000],
+            4525: [3640000, 3950000, 4260000, 4570000, 4880000, 5190000, 5500000],
+            4700: [3680000, 4000000, 4320000, 4640000, 4960000, 5280000, 5600000],
+            4875: [3720000, 4050000, 4380000, 4710000, 5040000, 5370000, 5700000],
+            5050: [3760000, 4100000, 4440000, 4780000, 5120000, 5460000, 5800000],
+            5225: [3800000, 4150000, 4500000, 4850000, 5200000, 5550000, 5900000],
+            5400: [3840000, 4200000, 4560000, 4920000, 5280000, 5640000, 6000000]
+        };
+
+        const oasisElectricPriceTable = {
+            2600: [3600000, 3850000, 4100000, 4350000, 4600000, 4850000, 5100000],
+            2775: [3640000, 3900000, 4160000, 4420000, 4680000, 4940000, 5200000],
+            2950: [3680000, 3950000, 4220000, 4490000, 4760000, 5030000, 5300000],
+            3125: [3720000, 4000000, 4280000, 4560000, 4840000, 5120000, 5400000],
+            3300: [3760000, 4050000, 4340000, 4630000, 4920000, 5210000, 5500000],
+            3475: [3800000, 4100000, 4400000, 4700000, 5000000, 5300000, 5600000],
+            3650: [3840000, 4150000, 4460000, 4770000, 5080000, 5390000, 5700000],
+            3825: [3880000, 4200000, 4520000, 4840000, 5160000, 5480000, 5800000],
+            4000: [3920000, 4250000, 4580000, 4910000, 5240000, 5570000, 5900000],
+            4175: [3960000, 4300000, 4640000, 4980000, 5320000, 5660000, 6000000],
+            4350: [4000000, 4350000, 4700000, 5050000, 5400000, 5750000, 6100000],
+            4525: [4040000, 4400000, 4760000, 5120000, 5480000, 5840000, 6200000],
+            4700: [4080000, 4450000, 4820000, 5190000, 5560000, 5930000, 6300000],
+            4875: [4120000, 4500000, 4880000, 5260000, 5640000, 6020000, 6400000],
+            5050: [4160000, 4550000, 4940000, 5330000, 5720000, 6110000, 6500000],
+            5225: [4200000, 4600000, 5000000, 5400000, 5800000, 6200000, 6600000],
+            5400: [4240000, 4650000, 5060000, 5470000, 5880000, 6290000, 6700000],
+            5575: [4280000, 4700000, 5120000, 5540000, 5960000, 6380000, 6800000],
+            5750: [4320000, 4750000, 5180000, 5610000, 6040000, 6470000, 6900000],
+            5925: [4360000, 4800000, 5240000, 5680000, 6120000, 6560000, 7000000]
+        };
+
+        const stayManualPivots = Object.keys(oasisManualPriceTable).map(Number);
+        const stayElectricPivots = Object.keys(oasisElectricPriceTable).map(Number);
+        
+        // 기본 비용 항목 - 양중비, 간접공사비 제거
+        const defaultConsItems = [
+            { cat: "직접 공사비", name: "경비", spec: "출장비", price: 200000 },
+            { cat: "자재 반입비", name: "운임", spec: "화물비" }
+        ];
+
+        function getSpanIndex(span) {
+            if (span <= 1000) return 0; if (span <= 1500) return 1; if (span <= 2000) return 2; if (span <= 2500) return 3; if (span <= 3000) return 4; if (span <= 3500) return 5; if (span <= 4000) return 6; return -1;
+        }
+
+        function calculatePergolaPrice(model, type, span, pivotVal) {
+            const sIdx = getSpanIndex(span); 
+            if (sIdx === -1) return 0;
+            
+            if (model === 'OASIS' || model === 'STAY') {
+                const pivot = parseInt(pivotVal);
+                let priceList;
+                if(type === 'manual') {
+                    priceList = oasisManualPriceTable[pivot];
+                } else {
+                    priceList = oasisElectricPriceTable[pivot];
+                }
+                
+                if (priceList && priceList[sIdx] !== undefined) {
+                    return priceList[sIdx];
+                }
+            } 
+            return 0;
+        }
+
+        // --- 초기화 및 함수 정의 ---
+        document.addEventListener('DOMContentLoaded', function() {
+            const today = new Date().toLocaleDateString('ko-KR');
+            document.getElementById('view-date').textContent = today;
+            initRegions();
+            addRow();
+            initConsTable();
+        });
+
+        function initRegions() {
+            const doSelect = document.getElementById('region-do');
+            let opts = '<option value="">시/도 선택</option>';
+            Object.keys(regions).forEach(r => opts += `<option value="${r}">${r}</option>`);
+            doSelect.innerHTML = opts;
+        }
+        
+        // 통합된 핸들러 (지역 변경 시 공급자 업데이트 + 비용 업데이트 + 시군구 업데이트)
+        function handleRegionChange(select) {
+            const val = select.value;
+            const siSelect = document.getElementById('region-si');
+            
+            // 1. 시/군/구 업데이트
+            if(val && regions[val]) {
+                let sOpts = '<option value="">시/군/구 선택</option>';
+                regions[val].forEach(s => sOpts += `<option value="${s}">${s}</option>`);
+                siSelect.innerHTML = sOpts;
+                siSelect.disabled = false;
+            } else {
+                siSelect.innerHTML = '<option value="">시/군/구</option>';
+                siSelect.disabled = true;
+            }
+
+            // 2. 공급자 정보 업데이트
+            updateSupplierInfo(val);
+
+            // 3. 비용 업데이트
+            updateCosts();
+        }
+
+        function updateSupplierInfo(regionDo) {
+            let supplierData = suppliers.default;
+            if (gyeongsangArea.includes(regionDo)) {
+                supplierData = suppliers.gyeongsang;
+            }
+
+            document.getElementById('supplier-name').textContent = supplierData.name;
+            document.getElementById('supplier-biz-no').textContent = supplierData.bizNo;
+            document.getElementById('supplier-manager').textContent = supplierData.manager;
+            document.getElementById('supplier-phone').textContent = supplierData.phone;
+            document.getElementById('supplier-email').textContent = supplierData.email;
+
+            // Footer update
+            const footerText = `${supplierData.name} | 담당자: ${supplierData.manager} | 연락처: ${supplierData.phone}`;
+            document.getElementById('footer-info').textContent = footerText;
+        }
+        
+        function updateCosts() {
+            const rDo = document.getElementById('region-do').value;
+            if (rDo) {
+                updateFreightCost(rDo);
+                updateTravelCost(rDo);
+            }
+        }
+
+        function updateFreightCost(regionDo) {
+            let cost = 0;
+            if (regionDo === '제주특별자치도') cost = 1800000;
+            else if (regionDo.includes('경상') || regionDo.includes('부산') || regionDo.includes('대구') || regionDo.includes('울산')) cost = 500000;
+            else if (regionDo.includes('전라') || regionDo.includes('전북') || regionDo.includes('광주')) cost = 500000;
+            else if (regionDo.includes('충청') || regionDo.includes('대전') || regionDo.includes('세종')) cost = 400000;
+            else if (regionDo.includes('강원')) cost = 500000;
+            else if (regionDo.includes('경기') || regionDo.includes('인천') || regionDo.includes('서울')) cost = 300000;
+            
+            const consRows = document.querySelectorAll('#cons-tbody tr');
+            consRows.forEach(row => {
+                const nameInput = row.querySelector('td:nth-child(2) input');
+                if (nameInput && nameInput.value === "운임") {
+                    const priceInput = row.querySelector('.c-price'); 
+                    priceInput.value = cost; 
+                    calcCons(priceInput);
+                }
+            });
+        }
+
+        function updateTravelCost(regionDo) {
+            let cost = 200000; 
+            if (regionDo === '서울특별시' || regionDo === '경기도') cost = 0;
+            
+            const consRows = document.querySelectorAll('#cons-tbody tr');
+            consRows.forEach(row => {
+                const nameInput = row.querySelector('td:nth-child(2) input');
+                const specInput = row.querySelector('td:nth-child(3) input');
+                if (nameInput && nameInput.value === "경비" && specInput && specInput.value === "출장비") {
+                    const priceInput = row.querySelector('.c-price'); priceInput.value = cost; calcCons(priceInput);
+                }
+            });
+        }
+
+        function addRow() {
+            const tbody = document.getElementById('est-tbody');
+            const tr = document.createElement('tr');
+            let prodOpts = '<option value="">선택</option>';
+            productCategories.forEach(cat => {
+                prodOpts += `<optgroup label="-- ${cat.label} --">`;
+                cat.items.forEach(item => { prodOpts += `<option value="${item}">${item}</option>`; });
+                prodOpts += `</optgroup>`;
+            });
+            // 가격, 수량 필드를 text 타입으로 변경하여 음수(-) 입력 용이하게 수정
+            tr.innerHTML = `<td><input type="tel" class="excel-input text-center" placeholder="No"></td><td><select class="excel-input" onchange="handleProdChange(this)">${prodOpts}</select><input type="text" class="excel-input hidden-on-print force-hidden" placeholder="품명 입력"></td><td class="spec-cell"><input type="text" class="excel-input text-center" placeholder="규격"></td><td><select class="excel-input text-center color-select" onchange="calcRow(this)" disabled><option value="">선택</option><option value="화이트">화이트</option><option value="차콜">차콜</option><option value="기타">기타 (할증)</option></select></td><td class="option-cell"><input type="text" class="excel-input" placeholder="옵션"></td><td><input type="text" class="excel-input text-center" value="식"></td><td><input type="text" class="excel-input text-center qty" oninput="calcRow(this)" placeholder="0" value="1"></td><td><input type="text" class="excel-input text-right price" oninput="handleManualPrice(this)" placeholder="0" data-base-price="0"></td><td class="text-right px-2"><span class="sum">0</span></td><td class="text-center hidden-on-print"><button onclick="delRow(this)" class="text-red-500 font-bold p-1 text-sm">×</button></td>`;
+            tbody.appendChild(tr);
+        }
+
+        function handleProdChange(sel) {
+            const tr = sel.closest('tr'); const specCell = tr.querySelector('.spec-cell'); const optionCell = tr.querySelector('.option-cell'); const customInput = sel.nextElementSibling; const colorSelect = tr.querySelector('.color-select'); 
+            
+            // 색상 옵션 및 단위 기본값으로 초기화
+            colorSelect.innerHTML = '<option value="">선택</option><option value="화이트">화이트</option><option value="차콜">차콜</option><option value="기타">기타 (할증)</option>';
+            const otherOption = colorSelect.querySelector('option[value="기타"]');
+            colorSelect.disabled = false; colorSelect.value = '';
+            tr.querySelector('td:nth-child(6) input').value = "식";
+            
+            // "직접 입력" or "custom" handling
+            if(sel.value === 'custom' || sel.value === '직접 입력') { 
+                sel.classList.add('force-hidden'); 
+                customInput.classList.remove('force-hidden'); 
+                customInput.focus(); 
+                
+                // Clear cells but keep as input
+                specCell.innerHTML = '<input type="text" class="excel-input text-center" placeholder="규격">'; 
+                optionCell.innerHTML = '<input type="text" class="excel-input" placeholder="옵션 입력">'; 
+                
+                // Update "기타" option to "+15%"
+                otherOption.textContent = "기타 (+15%)"; 
+                colorSelect.disabled = false; 
+                return; 
+            } else { 
+                sel.classList.remove('force-hidden'); 
+                customInput.classList.add('force-hidden'); 
+            }
+            
+            const isOasis = sel.value.includes("OASIS"); 
+            const isGlass = sel.value.includes("Glass");
+            const isDeck = sel.value.includes("스톤데크");
+            
+            if (isOasis || isGlass) {
+                otherOption.textContent = "기타 (+15%)"; 
+            } else if (!isDeck) { 
+                otherOption.textContent = "기타 (할증)"; 
+                colorSelect.disabled = true; 
+            }
+
+            if (isOasis) {
+                let pivotOpts = '<option value="">선택</option>'; let pivotList = [];
+                const isManual = sel.value.includes("수동"); 
+                pivotList = isManual ? stayManualPivots : stayElectricPivots;
+                
+                pivotList.forEach(p => pivotOpts += `<option value="${p}">${p}</option>`);
+                let heightSelectHtml = `<div class="spec-row"><span class="spec-label">H</span><select class="excel-input spec-input spec-height" onchange="calcPergola(this)"><option value="3000이하">3000이하</option><option value="6000이하">6000이하 (+100만)</option></select></div>`;
+                
+                specCell.innerHTML = `<div class="spec-container"><div class="spec-row"><span class="spec-label">Span</span><input type="tel" class="excel-input spec-input spec-span" placeholder="입력(mm)" oninput="calcPergola(this)"></div><div class="spec-row"><span class="spec-label">Pivot</span><select class="excel-input spec-input spec-pivot" onchange="calcPergola(this)">${pivotOpts}</select></div>${heightSelectHtml}</div>`;
+                
+                optionCell.innerHTML = `<div class="option-container"><label class="option-row option-label"><input type="checkbox" class="opt-led" onchange="calcRow(this)"><span>LED 싱글 라인등</span></label><div class="option-row"><label class="option-label"><input type="checkbox" class="opt-pillar-chk" onchange="togglePillarInput(this)"><span>기둥 추가</span></label><input type="tel" class="option-qty-input opt-pillar" placeholder="0" min="0" disabled oninput="calcRow(this)"></div></div>`; 
+            } else if (sel.value === "Glass Sliding") {
+                specCell.innerHTML = `<select class="excel-input text-center glass-spec" onchange="calcRow(this)"><option value="2500_under">2500mm 미만</option><option value="2500_over">2500mm 이상</option></select>`; 
+                optionCell.innerHTML = `<input type="text" class="excel-input" value="" readonly>`;
+            } else if (sel.value === "Fix Glass") {
+                specCell.innerHTML = '<input type="text" class="excel-input text-center" placeholder="규격 입력">'; 
+                optionCell.innerHTML = `<input type="text" class="excel-input" value="시공비별도" readonly>`;
+            } else if (isDeck) {
+                specCell.innerHTML = '<input type="text" class="excel-input text-center" value="600*600" readonly>'; 
+                optionCell.innerHTML = `<input type="text" class="excel-input text-center" value="-" readonly>`;
+                tr.querySelector('td:nth-child(6) input').value = "m2";
+                colorSelect.innerHTML = '<option value="">선택</option><option value="연그레이">연그레이</option><option value="연베이지">연베이지</option><option value="차콜">차콜</option>';
+                colorSelect.disabled = false;
+            } else {
+                // Restore default cells for other items
+                specCell.innerHTML = '<input type="text" class="excel-input text-center" placeholder="규격">'; 
+                optionCell.innerHTML = '<input type="text" class="excel-input" placeholder="옵션 입력">'; 
+            }
+            tr.querySelector('.price').value = ''; tr.querySelector('.price').dataset.basePrice = 0; calcRow(sel);
+        }
+
+        function togglePillarInput(chk) { const input = chk.closest('.option-row').querySelector('.opt-pillar'); input.disabled = !chk.checked; if(!chk.checked) input.value = ''; calcRow(chk); }
+        function handleManualPrice(el) { el.dataset.basePrice = el.value; calcRow(el); }
+        
+        function calcPergola(el) {
+            const tr = el.closest('tr'); const prodName = tr.querySelector('td:nth-child(2) select').value;
+            const span = parseInt(tr.querySelector('.spec-span')?.value) || 0; const pivot = parseInt(tr.querySelector('.spec-pivot')?.value) || 0; const heightVal = tr.querySelector('.spec-height')?.value;
+            if (span > 0 && pivot > 0) {
+                let model = "STAY", type = "manual";
+                if(prodName.includes("OASIS")) model = "OASIS"; 
+                if(prodName.includes("전동")) type = "electric";
+                
+                let basePrice = calculatePergolaPrice(model, type, span, pivot);
+                if (heightVal === '6000이하') basePrice += 1000000;
+                const priceInput = tr.querySelector('.price'); priceInput.dataset.basePrice = basePrice; calcRow(el);
+            }
+        }
+
+        function calcRow(el) {
+            const tr = el.closest('tr'); const priceInput = tr.querySelector('.price'); const qtyInput = tr.querySelector('.qty'); const colorSelect = tr.querySelector('td:nth-child(4) select'); 
+            const prodSelect = tr.querySelector('td:nth-child(2) select');
+            
+            // Check if "Direct Input" mode
+            let prodName = prodSelect.value;
+            if (prodSelect.classList.contains('force-hidden')) {
+                 prodName = '직접 입력';
+            }
+
+            let basePrice = parseFloat(priceInput.dataset.basePrice);
+            if (isNaN(basePrice)) basePrice = 0;
+            if (priceInput.value === '-') basePrice = 0; // 마이너스만 입력 시 계산 오류 방지
+            
+            if (prodName === "Glass Sliding") { 
+                const specVal = tr.querySelector('.glass-spec')?.value; 
+                if (specVal === '2500_over') basePrice = 600000; 
+                else basePrice = 500000; 
+            } else if (prodName === "Fix Glass") {
+                basePrice = 150000;
+            } else if (prodName === "스톤데크 (+페데스탈)") {
+                basePrice = 110000;
+            } else if (prodName === "스톤데크 (+각관)") {
+                basePrice = 150000;
+            }
+            
+            if (colorSelect.value === '기타') {
+                if (prodName.includes("OASIS") || prodName.includes("Glass") || prodName === '직접 입력') basePrice = Math.round(basePrice * 1.15);
+            }
+            let optionAddon = 0;
+            if (prodName.includes("OASIS")) { 
+                const isManual = prodName.includes("수동"); 
+                if (tr.querySelector('.opt-led')?.checked) optionAddon += isManual ? 1000000 : 500000; 
+                if (tr.querySelector('.opt-pillar-chk')?.checked) optionAddon += (parseInt(tr.querySelector('.opt-pillar')?.value)||0) * 500000; 
+            }
+            
+            let finalUnitPrice = basePrice + optionAddon;
+            
+            // 품목 선택을 통한 자동 단가가 아닌, 직접 입력 상태인 경우 덮어쓰기 방지 (마이너스 등 타이핑 원활)
+            if (prodSelect.classList.contains('force-hidden') || prodName === '직접 입력' || prodName === 'custom') {
+                 // 그대로 둠
+            } else {
+                 priceInput.value = finalUnitPrice !== 0 ? finalUnitPrice : '';
+            }
+
+            const qty = parseFloat(qtyInput.value) || 0; 
+            const sum = finalUnitPrice * qty; 
+            tr.querySelector('.sum').textContent = sum.toLocaleString(); 
+            
+            syncAutoCalcItems();
+        }
+
+        function syncAutoCalcItems() {
+            let oasisTotalQty = 0;
+            let glassTotalQty = 0;
+            let fixGlassQty = 0;
+            let stoneDeckPedestalQty = 0;
+            let stoneDeckTubeQty = 0;
+            let hasManualOasisLed = false;
+            
+            const prodRows = document.querySelectorAll('#est-tbody tr');
+            prodRows.forEach(row => {
+                const prodSelect = row.querySelector('td:nth-child(2) select');
+                const qtyInput = row.querySelector('.qty');
+                if (prodSelect && qtyInput) {
+                    const prodName = prodSelect.value;
+                    const qty = parseFloat(qtyInput.value) || 0;
+                    if (prodName.includes("OASIS")) oasisTotalQty += qty;
+                    if (prodName.includes("Glass Sliding")) glassTotalQty += qty;
+                    if (prodName.includes("Fix Glass")) fixGlassQty += qty;
+                    if (prodName === "스톤데크 (+페데스탈)") stoneDeckPedestalQty += qty;
+                    if (prodName === "스톤데크 (+각관)") stoneDeckTubeQty += qty;
+                    
+                    if (prodName.includes("OASIS (수동)")) {
+                        if (row.querySelector('.opt-led')?.checked) {
+                            hasManualOasisLed = true;
+                        }
+                    }
+                }
+            });
+
+            let fixGlassConsFound = false;
+            let glassConsFound = false;
+            let oasisConsFound = false;
+            let stoneDeckPedestalConsFound = false;
+            let stoneDeckTubeConsFound = false;
+            
+            const existingConsRows = document.querySelectorAll('#cons-tbody tr');
+            existingConsRows.forEach(row => {
+                const nameInput = row.querySelector('td:nth-child(2) input');
+                const specInput = row.querySelector('td:nth-child(3) input');
+                if (nameInput) {
+                    if (nameInput.value === "Fix Glass") fixGlassConsFound = true;
+                    if (nameInput.value === "Glass Sliding") glassConsFound = true;
+                    if (nameInput.value === "OASIS") oasisConsFound = true;
+                    
+                    if (nameInput.value === "스톤데크") {
+                        if (specInput && specInput.value.includes("페데스탈")) stoneDeckPedestalConsFound = true;
+                        if (specInput && specInput.value.includes("각관")) stoneDeckTubeConsFound = true;
+                    }
+                }
+            });
+            
+            if (fixGlassQty > 0 && !fixGlassConsFound) {
+                addConsRow({ cat: '직접 공사비', name: 'Fix Glass', spec: '시공비', price: 30000 });
+            }
+            if (glassTotalQty > 0 && !glassConsFound) {
+                addConsRow({ cat: '직접 공사비', name: 'Glass Sliding', spec: '시공비', price: 0 });
+            }
+            if (oasisTotalQty > 0 && !oasisConsFound) {
+                addConsRow({ cat: '직접 공사비', name: 'OASIS', spec: '인건비/부자재', price: 800000 });
+            }
+            if (stoneDeckPedestalQty > 0 && !stoneDeckPedestalConsFound) {
+                addConsRow({ cat: '직접 공사비', name: '스톤데크', spec: '스톤데크 + 페데스탈 시공', price: 40000 });
+            }
+            if (stoneDeckTubeQty > 0 && !stoneDeckTubeConsFound) {
+                addConsRow({ cat: '직접 공사비', name: '스톤데크', spec: '스톤데크 + 각관 시공', price: 50000 });
+            }
+
+            const consRows = document.querySelectorAll('#cons-tbody tr');
+            consRows.forEach(row => {
+                const nameInput = row.querySelector('td:nth-child(2) input');
+                const qtyInput = row.querySelector('.c-qty');
+                const priceInput = row.querySelector('.c-price');
+                const specInput = row.querySelector('td:nth-child(3) input');
+                
+                if (nameInput && nameInput.value === "OASIS") {
+                    if (qtyInput) qtyInput.value = oasisTotalQty;
+                    priceInput.value = 800000;
+                    calcCons(qtyInput, false);
+                }
+
+                if (nameInput && nameInput.value === "Glass Sliding") {
+                    if (glassTotalQty > 0) {
+                        if (glassTotalQty < 9) {
+                            qtyInput.value = 1;
+                            priceInput.value = 600000;
+                            if(specInput) specInput.value = "기본 시공비 (9짝 미만)";
+                        } else {
+                            qtyInput.value = glassTotalQty;
+                            priceInput.value = 70000;
+                            if(specInput) specInput.value = "짝당 시공비";
+                        }
+                    } else {
+                        qtyInput.value = 0;
+                        priceInput.value = 0;
+                    }
+                    calcCons(qtyInput, false);
+                }
+
+                if (nameInput && nameInput.value === "Fix Glass") {
+                    if (fixGlassQty > 0) {
+                        qtyInput.value = fixGlassQty;
+                        priceInput.value = 30000;
+                    } else {
+                        qtyInput.value = 0;
+                        priceInput.value = 0;
+                    }
+                    calcCons(qtyInput, false);
+                }
+
+                if (nameInput && nameInput.value === "운임") {
+                    let requiredTrucks = Math.ceil(oasisTotalQty / 2);
+                    if (glassTotalQty > 0) requiredTrucks += 1;
+                    if (qtyInput) qtyInput.value = requiredTrucks > 0 ? requiredTrucks : 1; 
+                    calcCons(qtyInput, false);
+                }
+
+                if (nameInput && nameInput.value === "양중비") {
+                    let liftingCount = 1; 
+                    if (glassTotalQty > 0) liftingCount += 1;
+                    if (qtyInput) qtyInput.value = liftingCount;
+                    calcCons(qtyInput, false);
+                }
+
+                // 스톤데크 수량(m2) 자동 연동
+                if (nameInput && nameInput.value === "스톤데크") {
+                    if (specInput && specInput.value.includes("페데스탈")) {
+                        if (stoneDeckPedestalQty > 0) {
+                            if(qtyInput) qtyInput.value = stoneDeckPedestalQty;
+                            priceInput.value = 40000;
+                            row.querySelector('td:nth-child(4) input').value = "m2";
+                        } else {
+                            if(qtyInput) qtyInput.value = 0;
+                            priceInput.value = 0;
+                        }
+                        calcCons(qtyInput, false);
+                    }
+                    if (specInput && specInput.value.includes("각관")) {
+                        if (stoneDeckTubeQty > 0) {
+                            if(qtyInput) qtyInput.value = stoneDeckTubeQty;
+                            priceInput.value = 50000;
+                            row.querySelector('td:nth-child(4) input').value = "m2";
+                        } else {
+                            if(qtyInput) qtyInput.value = 0;
+                            priceInput.value = 0;
+                        }
+                        calcCons(qtyInput, false);
+                    }
+                }
+            });
+            
+            const discountArea = document.getElementById('discount-message-area');
+            const existingWarning = discountArea.querySelector('.warning-text');
+            if (existingWarning) existingWarning.remove();
+            
+            if (hasManualOasisLed) {
+                const warningMsg = document.createElement('div');
+                warningMsg.className = 'warning-text';
+                warningMsg.innerHTML = '<strong>주의:</strong> 수동(Manual) 선택 시 LED 수신기, SMPS, 리모컨, 부속함 등을 별도 구매해야 하므로 LED 비용이 높게 측정될 수 있습니다. 전동(Electric)을 선택하시면 통합 부품으로 더 합리적인 비용이 책정됩니다.';
+                discountArea.appendChild(warningMsg);
+            }
+
+            sortConsRows();
+            calcTotal(true);
+        }
+
+        function sortConsRows() {
+            const tbody = document.getElementById('cons-tbody');
+            const rows = Array.from(tbody.children);
+            
+            rows.sort((a, b) => {
+                const aName = getConsRowName(a);
+                const bName = getConsRowName(b);
+                const aCat = a.querySelector('td:nth-child(1) input').value;
+                const bCat = b.querySelector('td:nth-child(1) input').value;
+
+                const getPriority = (cat, name) => {
+                    if (name === "OASIS" || name === "Glass Sliding" || name === "Fix Glass" || name === "스톤데크") return 1;
+                    if (name === "기초석" || name === "경비") return 2;
+                    if (cat === "자재 반입비") return 3;
+                    if (cat === "간접 공사비") return 4;
+                    if (cat === "자체공사비") return 5;
+                    return 6;
+                };
+
+                return getPriority(aCat, aName) - getPriority(bCat, bName);
+            });
+
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        function getConsRowName(row) {
+            const select = row.querySelector('td:nth-child(2) select');
+            if (select) return select.value;
+            const input = row.querySelector('td:nth-child(2) input');
+            return input ? input.value : "";
+        }
+
+        function initConsTable() { defaultConsItems.forEach(item => addConsRow(item)); }
+
+        function addConsRow(item = null) {
+            const tbody = document.getElementById('cons-tbody'); const tr = document.createElement('tr');
+            const cat = item ? item.cat : ''; const name = item ? item.name : ''; const spec = item ? item.spec : ''; const price = item && item.price ? item.price : ''; const isPercent = item && item.isPercent; const isProductSelect = item && item.isProductSelect;
+            
+            let nameField = `<input type="text" class="excel-input ${isPercent ? 'auto-calc-field name-field' : ''}" value="${name}" placeholder="항목명" ${isPercent ? 'readonly' : ''}>`;
+
+            // c-qty와 c-price 필드를 text 타입으로 변경하여 음수 처리 원활하게 함
+            tr.innerHTML = `<td><input type="text" class="excel-input text-center" value="${cat}" placeholder="구분"></td><td>${nameField}</td><td>${isProductSelect ? '<input type="text" class="excel-input" value="인건비/부자재" readonly>' : `<input type="text" class="excel-input" value="${spec}" placeholder="상세내용">`}</td><td><input type="text" class="excel-input text-center" value="식"></td><td><input type="text" class="excel-input text-center c-qty" oninput="calcCons(this)" placeholder="1" value="1" ${isPercent ? 'readonly' : ''}></td><td><input type="text" class="excel-input text-right c-price ${isPercent ? 'auto-calc-field' : ''}" oninput="calcCons(this)" placeholder="0" value="${price}" ${isPercent ? 'readonly' : ''}></td><td class="text-right px-2"><span class="c-sum">0</span></td><td class="text-center hidden-on-print"><button onclick="delRow(this)" class="text-red-500 font-bold p-1 text-sm">×</button></td>`;
+            let insertIndex = -1; if (cat) { const rows = Array.from(tbody.children); for(let i = rows.length - 1; i >= 0; i--) { if(rows[i].querySelector('td:nth-child(1) input').value === cat) { insertIndex = i; break; } } }
+            if(insertIndex !== -1) tbody.children[insertIndex].after(tr); else tbody.appendChild(tr);
+            if(name === "항목명") { 
+                const nameCell = tr.querySelector('td:nth-child(2)'); 
+                let consProdOpts = '<option value="">선택</option>'; 
+                productCategories.forEach(cat => { consProdOpts += `<optgroup label="-- ${cat.label} --">`; cat.items.forEach(item => { consProdOpts += `<option value="${item}">${item}</option>`; }); consProdOpts += `</optgroup>`; }); 
+                nameCell.innerHTML = `<select class="excel-input" onchange="handleConsProdChange(this)">${consProdOpts}</select><input type="text" class="excel-input hidden-on-print force-hidden" placeholder="항목명">`; 
+            }
+            if(price || isPercent) calcCons(tr.querySelector('.c-price'), false);
+        }
+
+        // --- NEW BUTTON FUNCTIONS ---
+        function addGenericDirectConsRow() {
+            addConsRow({ cat: '직접 공사비', name: '', spec: '', price: 0 });
+        }
+
+        function addMeasurementRow() { addConsRow({ cat: '직접 공사비', name: '경비', spec: '실측비', price: 200000 }); }
+        function addFoundationRow() { addConsRow({ cat: '직접 공사비', name: '기초석', spec: '자재/시공', price: 200000 }); }
+        function addLiftingRow() { 
+            // Manual add Lifting cost. Logic will handle quantity.
+            addConsRow({ cat: '자재 반입비', name: '양중비', spec: '사다리차/스카이', price: 300000 });
+            syncAutoCalcItems();
+        }
+        function addDirectConsRow() { 
+            // OASIS auto-add
+            addConsRow({ cat: '직접 공사비', name: 'OASIS', spec: '인건비/부자재', price: 800000 }); 
+            syncAutoCalcItems();
+        }
+        function addDeckRow() { 
+            addConsRow({ cat: '자체공사비', name: '데크', spec: '데크공사 일체 (m2)', price: 180000 });
+            const textarea = document.getElementById('remarks-area');
+            textarea.value += (textarea.value ? "\n" : "") + "- 데크 공사의 경우 기본 공사 비용으로 자재선택, 현장 상황에 따라 견적이 변경될 수 있습니다.";
+        }
+        function addIndirectConsRow() {
+            addConsRow({ cat: "간접 공사비", name: "공과잡비", spec: "기타 경비", isPercent: true });
+            addConsRow({ cat: "간접 공사비", name: "감리비", spec: "기타 경비", isPercent: true });
+            calcTotal();
+        }
+        
+        function handleConsProdChange(sel) { /* ... */ }
+
+        function calcCons(el, triggerTotal = true) { 
+            const tr = el.closest('tr'); 
+            const qty = parseFloat(tr.querySelector('.c-qty').value) || 0; 
+            const price = parseFloat(tr.querySelector('.c-price').value) || 0; 
+            const sum = qty * price; 
+            tr.querySelector('.c-sum').textContent = sum.toLocaleString(); 
+            if(triggerTotal) calcTotal(false);
+        }
+        
+        function calcTotal(triggerPercentUpdate = true) {
+            let prodTotal = 0; document.querySelectorAll('#est-tbody .sum').forEach(el => prodTotal += parseFloat(el.textContent.replace(/,/g,''))||0);
+            
+            let hasOverhead = false;
+            let hasSupervision = false;
+            
+            // Check for overhead rows
+            const consRows = document.querySelectorAll('#cons-tbody tr'); 
+            consRows.forEach(row => { 
+                const nameInput = row.querySelector('td:nth-child(2) input'); 
+                const name = nameInput ? nameInput.value : ''; 
+                if (name === "공과잡비") hasOverhead = true;
+                if (name === "감리비") hasSupervision = true;
+            });
+
+            if (triggerPercentUpdate) { 
+                consRows.forEach(row => { 
+                    const nameInput = row.querySelector('td:nth-child(2) input'); 
+                    const name = nameInput ? nameInput.value : ''; 
+                    
+                    if (name === "공과잡비") { 
+                        const priceInput = row.querySelector('.c-price'); 
+                        const newVal = Math.round(prodTotal * 0.05); 
+                        priceInput.value = newVal; 
+                        const qty = parseFloat(row.querySelector('.c-qty').value) || 0; 
+                        row.querySelector('.c-sum').textContent = (qty * newVal).toLocaleString(); 
+                    }
+                    if (name === "감리비") {
+                        const priceInput = row.querySelector('.c-price'); 
+                        const newVal = Math.round(prodTotal * 0.05); 
+                        priceInput.value = newVal; 
+                        const qty = parseFloat(row.querySelector('.c-qty').value) || 0; 
+                        row.querySelector('.c-sum').textContent = (qty * newVal).toLocaleString(); 
+                    }
+                }); 
+            }
+            
+            const discountArea = document.getElementById('discount-message-area');
+            const warning = discountArea.querySelector('.warning-text');
+            discountArea.innerHTML = '';
+            // OASIS 수동 경고 문구는 유지
+            if(warning) discountArea.appendChild(warning);
+            
+            // [수정됨] 간접공사비 할인 안내 문구 생성 로직 삭제
+
+            let consTotal = 0; document.querySelectorAll('#cons-tbody .c-sum').forEach(el => consTotal += parseFloat(el.textContent.replace(/,/g,''))||0);
+            const totalSupply = prodTotal + consTotal;
+            // 할인 없음
+            const afterDiscount = totalSupply;
+            const tax = Math.round(afterDiscount * 0.1); 
+            const grandTotal = afterDiscount + tax;
+            document.getElementById('val-prod-sum').textContent = prodTotal.toLocaleString(); 
+            document.getElementById('val-cons-sum').textContent = consTotal.toLocaleString(); 
+            document.getElementById('val-supply').textContent = totalSupply.toLocaleString(); 
+            document.getElementById('val-tax').textContent = tax.toLocaleString(); 
+            document.getElementById('val-total').textContent = grandTotal.toLocaleString();
+        }
+        function delRow(btn) { 
+            btn.closest('tr').remove(); 
+            syncAutoCalcItems(); 
+        }
+
+        async function saveAsPDF() {
+            document.getElementById('loading-overlay').classList.remove('hidden');
+            try {
+                const hiddenContainer = document.getElementById('pdf-hidden-container');
+                hiddenContainer.innerHTML = ''; 
+
+                const p1 = document.getElementById('capture-area');
+                const clone1 = p1.cloneNode(true);
+                syncInputValues(p1, clone1);
+
+                hiddenContainer.appendChild(clone1);
+                hiddenContainer.classList.add('pdf-mode');
+
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                const doc = new window.jspdf.jsPDF('p', 'mm', 'a4');
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const pageHeight = doc.internal.pageSize.getHeight();
+                
+                const captureOptions = { scale: 2, useCORS: true, logging: false, width: 1200, windowWidth: 1200, backgroundColor: '#ffffff' };
+
+                const canvas1 = await html2canvas(clone1, captureOptions);
+                const imgData1 = canvas1.toDataURL('image/png');
+                const imgHeight1 = (canvas1.height * pageWidth) / canvas1.width;
+                
+                doc.addImage(imgData1, 'PNG', 0, 0, pageWidth, Math.min(imgHeight1, pageHeight));
+
+                const regionDo = document.getElementById('region-do').value || '지역';
+                const regionSi = document.getElementById('region-si').value || '';
+                const phone = document.getElementById('cust-phone').value || '';
+                const phoneLast4 = phone.length >= 4 ? phone.slice(-4) : phone;
+                let name = document.getElementById('cust-name').value;
+                if (!name || name.trim() === '') name = 'VIP'; 
+                const date = new Date().toISOString().slice(2,10).replace(/-/g,'');
+                
+                const safeRegionDo = regionDo.trim();
+                const safeRegionSi = regionSi.trim();
+                // TC_ 접두어 추가
+                const fileName = `TC_${safeRegionDo} ${safeRegionSi} ${phoneLast4} ${name}_${date}.pdf`.trim();
+
+                doc.save(fileName);
+
+            } catch (err) {
+                console.error(err);
+                alert('PDF 생성 중 오류가 발생했습니다.\n' + err.message);
+            } finally {
+                document.getElementById('pdf-hidden-container').innerHTML = '';
+                document.getElementById('loading-overlay').classList.add('hidden');
+            }
+        }
+        
+        function syncInputValues(originalDom, clonedDom) {
+            const originalInputs = originalDom.querySelectorAll('input, select, textarea');
+            const clonedInputs = clonedDom.querySelectorAll('input, select, textarea');
+            
+            originalInputs.forEach((input, index) => {
+                const clone = clonedInputs[index];
+                if (!clone) return;
+
+                if (input.type === 'checkbox' || input.type === 'radio') {
+                    clone.checked = input.checked;
+                    if(input.checked) {
+                        const span = document.createElement('span');
+                        span.textContent = '✔ ';
+                        span.style.fontWeight = 'bold';
+                        span.style.marginRight = '4px';
+                        clone.parentNode.insertBefore(span, clone);
+                        clone.style.display = 'none';
+                    } else {
+                         if(clone.parentElement.tagName === 'LABEL') clone.parentElement.style.display = 'none';
+                         else clone.style.display = 'none';
+                    }
+                } else if (input.tagName === 'SELECT') {
+                    const selectedText = input.options[input.selectedIndex] ? input.options[input.selectedIndex].text : '';
+                    const span = document.createElement('span');
+                    span.textContent = selectedText;
+                    span.className = 'pdf-text-value';
+                    span.style.cssText = window.getComputedStyle(input).cssText;
+                    span.style.border = 'none';
+                    span.style.padding = '0';
+                    span.style.width = 'auto';
+                    clone.parentNode.replaceChild(span, clone);
+                } else {
+                    const span = document.createElement('span');
+                    span.textContent = input.value;
+                    span.className = 'pdf-text-value';
+                    span.style.cssText = window.getComputedStyle(input).cssText;
+                    span.style.border = 'none';
+                    span.style.background = 'transparent';
+                    if(input.tagName === 'TEXTAREA') {
+                        span.style.whiteSpace = 'pre-wrap';
+                        span.style.display = 'block';
+                    }
+                    clone.parentNode.replaceChild(span, clone);
+                }
+            });
+            
+            // Copy dynamic content (supplier info including footer)
+            // Use querySelector because originalDom is a Div element, not Document
+            const supplierFields = ['supplier-name', 'supplier-biz-no', 'supplier-manager', 'supplier-phone', 'supplier-email', 'footer-info'];
+            supplierFields.forEach(id => {
+                 const originalEl = originalDom.querySelector('#' + id);
+                 const clonedEl = clonedDom.querySelector('#' + id);
+                 if(originalEl && clonedEl) {
+                     clonedEl.textContent = originalEl.textContent;
+                 }
+            });
+
+            const originalMsgs = originalDom.querySelectorAll('.discount-text');
+            const originalWarnings = originalDom.querySelectorAll('.warning-text');
+            const clonedMsgArea = clonedDom.querySelector('#discount-message-area');
+            if(clonedMsgArea) {
+                 clonedMsgArea.innerHTML = '';
+                 if (originalWarnings.length > 0) {
+                     originalWarnings.forEach(msg => clonedMsgArea.appendChild(msg.cloneNode(true)));
+                 }
+                 if (originalMsgs.length > 0) {
+                     originalMsgs.forEach(msg => clonedMsgArea.appendChild(msg.cloneNode(true)));
+                 }
+            }
+        }
+    </script>
+</body>
+</html>
